@@ -9,7 +9,7 @@ from app.payments.handlers import cash, upi, card  # noqa: F401 — register han
 from app.payments.handlers.registry import PaymentRegistry
 from app.payments.repository import PaymentRepository
 from app.payments.schemas import PaymentRequest, PaymentResponse
-from app.payments.service import cache_payment, generate_payment_ref, get_cached_payment
+from app.payments.service import cache_payment, get_cached_payment
 from app.trips.repository import TripRepository
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -21,8 +21,8 @@ async def trigger_payment(body: PaymentRequest, db: DbSession, redis: RedisConn)
     Trigger payment for a completed trip.
 
     Idempotency is Redis-first, no idempotency key stored in DB:
-      - payment_ref = sha256(rider_id:trip_id:method:date)[:40]  — deterministic, ephemeral
-      - Redis hit (24 h TTL) → return cached response immediately
+      - Redis key: payment:{trip_id}  TTL: 24h
+      - Redis hit → return cached response immediately
       - Redis miss → DB fallback via trip_id + rider_id + payment_method
       - Neither → create new payment record
 
@@ -31,12 +31,10 @@ async def trigger_payment(body: PaymentRequest, db: DbSession, redis: RedisConn)
       UPI_*   → NPCI UPI gateway, 3× exponential-backoff retry
       CARD    → card gateway, 3× exponential-backoff retry
     """
-    payment_ref = generate_payment_ref(
-        str(body.rider_id), str(body.trip_id), body.payment_method
-    )
+    trip_id = str(body.trip_id)
 
     # 1. Redis-first idempotency check
-    cached = await get_cached_payment(redis, payment_ref)
+    cached = await get_cached_payment(redis, trip_id)
     if cached:
         return PaymentResponse(**cached)
 
@@ -48,7 +46,7 @@ async def trigger_payment(body: PaymentRequest, db: DbSession, redis: RedisConn)
     )
     if existing:
         response = PaymentResponse.model_validate(existing)
-        await cache_payment(redis, payment_ref, response.model_dump())
+        await cache_payment(redis, trip_id, response.model_dump())
         return response
 
     # 3. New payment
@@ -77,7 +75,7 @@ async def trigger_payment(body: PaymentRequest, db: DbSession, redis: RedisConn)
         method=body.payment_method,
         amount=trip.actual_fare,
         currency="INR",
-        payment_ref=payment_ref,
+        payment_ref=trip_id,
     )
 
     final_status = "COMPLETED" if result.success else "FAILED"
@@ -89,7 +87,6 @@ async def trigger_payment(body: PaymentRequest, db: DbSession, redis: RedisConn)
     )
 
     response = PaymentResponse.model_validate(payment)
-    await cache_payment(redis, payment_ref, response.model_dump())
 
     if not result.success:
         raise HTTPException(
@@ -97,4 +94,5 @@ async def trigger_payment(body: PaymentRequest, db: DbSession, redis: RedisConn)
             detail=f"Payment failed: {result.error or 'PSP error'}. Please try again.",
         )
 
+    await cache_payment(redis, trip_id, response.model_dump())
     return response

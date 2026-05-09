@@ -23,7 +23,6 @@ import redis.asyncio as aioredis
 from app.core.database import session_context
 from app.core.redis_client import get_redis
 from app.rides.repository import RideRepository
-from app.drivers.repository import DriverRepository
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ OFFERED_FLAG_KEY = "offered:{ride_id}:{driver_id}"
 RIDE_STATUS_KEY = "ride:status:{ride_id}"
 
 RADII_KM = [2.0, 5.0, 10.0]
-OFFER_TTL = 120  # seconds driver has to accept
+OFFER_TTL = 30  # seconds driver has to accept
 BETWEEN_RADIUS_WAIT = 5
 
 
@@ -141,8 +140,8 @@ async def _poll_for_acceptance(
     ride_id: uuid.UUID,
     timeout_sec: int,
 ) -> bool:
-    deadline = asyncio.get_event_loop().time() + timeout_sec
-    while asyncio.get_event_loop().time() < deadline:
+    deadline = asyncio.get_running_loop().time() + timeout_sec
+    while asyncio.get_running_loop().time() < deadline:
         status = await redis.get(RIDE_STATUS_KEY.format(ride_id=ride_id))
         if status and status != "MATCHING":
             return status == "DRIVER_ASSIGNED"
