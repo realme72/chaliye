@@ -19,17 +19,10 @@ class DriverRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_api_key(self, api_key: str) -> Optional[Driver]:
-        result = await self._session.execute(
-            select(Driver).where(Driver.api_key == api_key)
-        )
-        return result.scalar_one_or_none()
-
     async def set_status(self, driver_id: uuid.UUID, status: str) -> None:
         await self._session.execute(
             update(Driver).where(Driver.id == driver_id).values(status=status)
         )
-        await self._session.flush()
 
     async def increment_trips(self, driver_id: uuid.UUID) -> None:
         await self._session.execute(
@@ -37,4 +30,3 @@ class DriverRepository:
             .where(Driver.id == driver_id)
             .values(total_trips=Driver.total_trips + 1)
         )
-        await self._session.flush()
