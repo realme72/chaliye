@@ -33,7 +33,7 @@ seed.py          # Creates sample riders and drivers for local testing
 
 ---
 
-## Setup
+## Setup - steps
 
 ### Prerequisites
 
